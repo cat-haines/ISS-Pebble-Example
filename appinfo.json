@@ -1,0 +1,27 @@
+{
+    "appKeys": {
+        "fetchData": 0,
+        "nextPass": 1
+    },
+    "capabilities": [
+        ""
+    ],
+    "companyName": "matth@beardedinventor.com",
+    "longName": "Hello World",
+    "projectType": "native",
+    "resources": {
+        "media": []
+    },
+    "sdkVersion": "3",
+    "shortName": "Hello World",
+    "targetPlatforms": [
+        "aplite",
+        "basalt",
+        "chalk"
+    ],
+    "uuid": "180ce7f6-a1d5-4728-bc2a-9f1dfe5ec0d9",
+    "versionLabel": "1.0",
+    "watchapp": {
+        "watchface": false
+    }
+}
