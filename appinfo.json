@@ -1,27 +1,39 @@
 {
     "appKeys": {
-        "fetchData": 0,
-        "nextPass": 1
+        "duration": 1,
+        "timeToPass": 0
     },
     "capabilities": [
-        ""
+        "location"
     ],
-    "companyName": "matth@beardedinventor.com",
-    "longName": "Hello World",
+    "companyName": "cat@pebble.com",
+    "longName": "ISS Overhead",
     "projectType": "native",
     "resources": {
-        "media": []
+        "media": [
+            {
+                "file": "images/iss.png",
+                "name": "IMAGE_ISS",
+                "storageFormat": "png",
+                "targetPlatforms": [
+                    "aplite",
+                    "basalt",
+                    "chalk"
+                ],
+                "type": "bitmap"
+            }
+        ]
     },
     "sdkVersion": "3",
-    "shortName": "Hello World",
+    "shortName": "ISS Overhead",
     "targetPlatforms": [
         "aplite",
         "basalt",
         "chalk"
     ],
-    "uuid": "180ce7f6-a1d5-4728-bc2a-9f1dfe5ec0d9",
+    "uuid": "59a1220b-d468-422b-8605-ed788960cf03",
     "versionLabel": "1.0",
     "watchapp": {
-        "watchface": false
+        "watchface": true
     }
 }

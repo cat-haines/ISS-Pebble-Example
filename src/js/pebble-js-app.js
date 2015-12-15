@@ -1,6 +1,4 @@
 function httpWrapper(url, verb, callback) {
-  console.log("Making a " + verb + " request to: " + url);
-  
   var xhr = new XMLHttpRequest();
   xhr.onload = function () {
     callback(this.responseText);
@@ -9,42 +7,47 @@ function httpWrapper(url, verb, callback) {
   xhr.send();
 }
 
-
-Pebble.addEventListener('ready', function(event) {
-  console.log("JS Ready");
-});
-
-Pebble.addEventListener("appmessage", function(event) {
-  if (event.payload.fetchData) {
-    navigator.geolocation.getCurrentPosition(
-      function(position) {
-        var url = "http://api.open-notify.org/iss-pass.json?lat=" + position.coords.latitude + "&lon=" + position.coords.longitude;
-        httpWrapper(url, "GET", function(responseText) {
-          var resp = JSON.parse(responseText);
-          if (resp.response && resp.response.length > 0) {
-            // in seconds
-            var nextPass = resp.response[0].risetime - resp.request.datetime;
+function loop() {
+  navigator.geolocation.getCurrentPosition(function(position) {
+    var url = "http://api.open-notify.org/iss-pass.json?lat=" + position.coords.latitude + "&lon=" + position.coords.longitude;
+    console.log("Fetching data from: " + url);
+    httpWrapper(url, "GET", function(responseText) {
+      // Parse the result
+      var resp = JSON.parse(responseText);
+      if (resp.response && resp.response.length > 0) {
+        // if it was successful, determine how far away the ISS is
+        var timeToPass = resp.response[0].risetime - resp.request.datetime;
+        var duration = resp.response[0].duration;
+        console.log("ISS is " + timeToPass + " seconds away");
+        
+        // If ISS is > 15 minutes and 30 seconds away
+        if (timeToPass > 930) {
+          // Grap pass times in 15 minutes
+          setTimeout(loop, 900000);
+          return;
+        } else {
+          // If ISS is < 15 minutes away, send a message to the watch
+          Pebble.sendAppMessage({
+            "timeToPass": timeToPass,
+            "duration": duration
+          });
             
-            var hours = Math.floor(nextPass / 3600);
-            var minutes = Math.floor((nextPass % 3600) / 60);
-            var seconds = nextPass % 60;
-            
-            var nextPassText = hours + ":" + minutes + ":" + seconds;
-            
-            Pebble.sendAppMessage({
-              "nextPass": nextPassText
-            });
-          } else {
-            Pebble.sendAppMessage({
-              "nextPass": "error"
-            })
-          }
-        });
-      }, function(err) {
-        console.log("Error getting Geolocation: " + JSON.stringify(err));
+          // Check for pass times 1 minute after the end of the current pass
+          setTimeout(loop, (timeToPass+duration+60)*1000);
+          return;
+        }
+      } else {
+        // If there wasn't a response array
+        console.log("Error getting ISS pass times");
       }
-    );
-  } else {
-    console.log("Unknown event :(");
-  }
+    });
+  }, function(err) {
+    // if we couldn't get location
+    console.log("Could not get location");
+  });
+}
+
+// When JS is ready, start the pass
+Pebble.addEventListener('ready', function(event) {
+  loop();
 });

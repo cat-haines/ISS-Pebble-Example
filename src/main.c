@@ -1,95 +1,139 @@
 #include <pebble.h>
 
-#define AppMessage_FetchData 0
-#define AppMessage_NextPass 1
-
 Window *my_window;
-TextLayer *text_layer;
 
-static char nextPass[32];
+// For displaying the time
+char time_string[] = "00:00 ";
+TextLayer *time_text_layer = NULL;
 
-static void send_message() {
-  DictionaryIterator *iter;
-  app_message_outbox_begin(&iter);
+// For displaying the image
+BitmapLayer *bitmap_layer = NULL;
+GBitmap *gbitmap_ptr = NULL;
 
-  if (!iter) {
-    // Error creating outbound message
-    text_layer_set_text(text_layer, "Something went wrong!");
+// For displaying when ISS is overhead
+AppTimer *timer_rise_time = NULL;
+AppTimer *timer_overhead = NULL;
+
+int is_overhead = 0;
+
+#define APP_MESSAGE_TIME_TO_PASS 0
+#define APP_MESSAGE_DURATION 1
+
+void update_time() {
+  clock_copy_time_string(time_string,sizeof(time_string));
+  
+  if (is_overhead) { 
+    time_string[5] = '.';
+  } else {
+    time_string[5] = ' ';
+  }
+  
+  text_layer_set_text(time_text_layer, time_string);
+  layer_mark_dirty(text_layer_get_layer(time_text_layer));
+}
+
+void do_overhead(void* context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Overhead");
+  is_overhead = true;
+  update_time();
+  
+  vibes_long_pulse();
+}
+
+void done_overhead(void* context) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Done Overhead!");
+  is_overhead = false;
+  update_time();
+  
+  vibes_short_pulse();
+}
+
+void handle_app_message(DictionaryIterator *msg, void *context) {
+  Tuple *t_time_to_rise = dict_find(msg, APP_MESSAGE_TIME_TO_PASS);
+  Tuple *t_duration = dict_find(msg, APP_MESSAGE_DURATION);
+
+  // If we're missing information
+  if (!t_time_to_rise || !t_duration) {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "Missing Information");
     return;
   }
-
-  text_layer_set_text(text_layer, "Fetching data..");
   
-  dict_write_int8(iter, AppMessage_FetchData, 1);
-  dict_write_end(iter);
+  // Cancel timers if they exist
+  if(timer_rise_time) app_timer_cancel(timer_rise_time);
+  if(timer_overhead) app_timer_cancel(timer_overhead);
 
-  app_message_outbox_send();
+  // Extract values
+  int16_t time_to_rise = t_time_to_rise->value->int16 * 1000;
+  int16_t duration = t_duration->value->int16 * 1000;
+  
+  APP_LOG(APP_LOG_LEVEL_INFO, "%d, %d", time_to_rise, duration);
+  
+  // schedule overhead timer
+  timer_rise_time = app_timer_register(time_to_rise, do_overhead, NULL);
+  timer_overhead = app_timer_register(time_to_rise+duration, done_overhead, NULL);
 }
 
-static void inbox_received_handler(DictionaryIterator *iter, void *context) {
-  Tuple *reply_tuple = dict_find(iter, AppMessage_NextPass);
-  
-  if (reply_tuple) {
-    snprintf(nextPass, 32, "ISS Overhead in: %s", reply_tuple->value->cstring);
-    
-    text_layer_set_text(text_layer, nextPass);
-  } else {
-    text_layer_set_text(text_layer, "Error :(");
+void tick_handler(struct tm *tick_time, TimeUnits units_changed){
+  update_time();
+}
+
+void load_image_resource(uint32_t resource_id){
+  if (gbitmap_ptr) {
+    gbitmap_destroy(gbitmap_ptr);
+    gbitmap_ptr = NULL;
   }
+  bitmap_layer_set_compositing_mode(bitmap_layer, GCompOpSet);
+  gbitmap_ptr = gbitmap_create_with_resource(resource_id);
+  layer_mark_dirty(bitmap_layer_get_layer(bitmap_layer));
 }
 
-static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
-  text_layer_set_text(text_layer, "Up pressed!");
-}
-
-static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-  send_message();
-}
-
-static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-  text_layer_set_text(text_layer, "Down pressed!");
-}
-
-static void click_config_provider(void *context) {
-  // Register the ClickHandlers
-  window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
-  window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
-  window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
-}
-
-void window_load(Window *window) {
-  Layer* root_layer = window_get_root_layer(window);
-  GRect bounds = layer_get_bounds(root_layer);
+static void window_load(Window *window) {
+  Layer *window_layer = window_get_root_layer(window);
+  GRect bounds = layer_get_bounds(window_layer);
   
-  text_layer = text_layer_create((GRect) { 
-    .size = { bounds.size.w, 20 },
-    .origin = { 0, 72 }
-  });
-
-  text_layer_set_text(text_layer, "Press a button!");
-  text_layer_set_text_alignment(text_layer, GTextAlignmentCenter);
+  // Load the image and fill the screen with it
+  bitmap_layer = bitmap_layer_create(bounds);
+  load_image_resource(RESOURCE_ID_IMAGE_ISS);
+  bitmap_layer_set_bitmap(bitmap_layer, gbitmap_ptr);
   
-  layer_add_child(root_layer, text_layer_get_layer(text_layer));
+  // Set the background color
+  window_set_background_color(window, PBL_IF_COLOR_ELSE(GColorRichBrilliantLavender, GColorWhite));
+  
+  //Add background first
+  layer_add_child(window_layer, bitmap_layer_get_layer(bitmap_layer));
+  
+  //Setup the time display
+  time_text_layer = text_layer_create(GRect(0, 20, bounds.size.w, 40));
+  text_layer_set_background_color(time_text_layer, GColorClear);
+	text_layer_set_font(time_text_layer, fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK));
+  text_layer_set_text_alignment(time_text_layer, GTextAlignmentCenter);
+
+  update_time();
+  
+  //Add clock text second
+  layer_add_child(window_layer, text_layer_get_layer(time_text_layer));
+  
+  //Setup hour and minute handlers
+  tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
+  
+  // Setup the app messages
+  app_message_register_inbox_received(handle_app_message);
+  // (inbox, outbox)
+  app_message_open(64, 0);
 }
 
 void window_unload(Window *window) {
-  text_layer_destroy(text_layer);
+  text_layer_destroy(time_text_layer);
 }
 
 void handle_init(void) {
   my_window = window_create();
-
   window_set_window_handlers(my_window, (WindowHandlers) {
     .load = window_load,
-    .unload = window_unload
+    .unload = window_unload,
   });
   
-  app_message_register_inbox_received(inbox_received_handler);
-  
-  app_message_open(128, 128);  
-  
-  window_set_click_config_provider(my_window, click_config_provider);
-  window_stack_push(my_window, true);  // true means we want there to be an animation
+  window_stack_push(my_window, false/*animated*/);
 }
 
 void handle_deinit(void) {
